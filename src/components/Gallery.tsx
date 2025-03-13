@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { useGallery } from '../contexts/GalleryContext';
 import { Trash2, Eye } from 'lucide-react';
 import ImagePreviewModal from './ImagePreviewModal';
+import ConfirmationDialog from './ConfirmationDialog';
 
 const Gallery: React.FC = () => {
   const { images, removeImage } = useGallery();
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [imageToDelete, setImageToDelete] = useState<string | null>(null);
 
   const openPreview = (imageSrc: string) => {
     setSelectedImage(imageSrc);
@@ -13,6 +15,21 @@ const Gallery: React.FC = () => {
 
   const closePreview = () => {
     setSelectedImage(null);
+  };
+
+  const handleDeleteConfirmation = (imageId: string) => {
+    setImageToDelete(imageId);
+  };
+
+  const confirmDelete = () => {
+    if (imageToDelete) {
+      removeImage(imageToDelete);
+      setImageToDelete(null);
+    }
+  };
+
+  const cancelDelete = () => {
+    setImageToDelete(null);
   };
 
   if (images.length === 0) {
@@ -49,7 +66,7 @@ const Gallery: React.FC = () => {
                 <Eye size={16} />
               </button>
               <button 
-                onClick={() => removeImage(image.id)}
+                onClick={() => handleDeleteConfirmation(image.id)}
                 className="p-1.5 bg-red-600 text-white rounded-full mx-1"
               >
                 <Trash2 size={16} />
@@ -67,6 +84,14 @@ const Gallery: React.FC = () => {
           onClose={closePreview} 
         />
       )}
+
+      <ConfirmationDialog 
+        isOpen={!!imageToDelete}
+        onClose={cancelDelete}
+        onConfirm={confirmDelete}
+        title="Bild löschen"
+        message="Sind Sie sicher, dass Sie dieses Bild löschen möchten? Diese Aktion kann nicht rückgängig gemacht werden."
+      />
     </div>
   );
 };
