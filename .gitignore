@@ -70,3 +70,5 @@ coverage/
 
 # Specific to React/Vite
 *.local
+
+*storybook.log
