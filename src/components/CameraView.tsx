@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Camera, X, RefreshCw, Image as ImageIcon } from 'lucide-react';
+import { Camera, RefreshCw, Image as ImageIcon, X } from 'lucide-react';
 import { useCamera } from '../contexts/CameraContext';
 import { useGallery } from '../contexts/GalleryContext';
 import FileNameInput from './FileNameInput';
@@ -19,43 +19,48 @@ const CameraView: React.FC = () => {
   // Get only the most recent 4 images for the recent photos section
   const recentImages = images.slice(0, 4);
 
-  // Start camera with selected device
-  const startCamera = async () => {
-    // Stop any existing stream
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-    }
-    
-    try {
-      const newStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          deviceId: cameraSettings.selectedDeviceId ? { exact: cameraSettings.selectedDeviceId } : undefined,
-          width: { ideal: cameraSettings.resolution.width },
-          height: { ideal: cameraSettings.resolution.height }
-        }
+  const saveImage = () => {
+    if (capturedImage) {
+      const trimmedFileName = fileName.trim();
+      
+      if (trimmedFileName && !isFileNameUnique(trimmedFileName)) {
+        setFileNameError('Ein Bild mit diesem Namen existiert bereits');
+        return;
+      }
+      
+      const name = trimmedFileName || `image_${new Date().toISOString().replace(/:/g, '-')}`;
+      addImage({
+        id: Date.now().toString(),
+        name: name,
+        src: capturedImage,
+        timestamp: new Date().toISOString(),
       });
       
-      setStream(newStream);
+      // Reset
+      setCapturedImage(null);
+      setShowPreview(false);
+      setFileNameError(null);
       
-      if (videoRef.current) {
-        videoRef.current.srcObject = newStream;
+      // Reset filename only if it was auto-generated
+      if (trimmedFileName === '') {
+        setFileName('');
       }
-    } catch (err) {
-      console.error('Error accessing camera:', err);
     }
   };
 
-  // Start camera when component mounts or when camera settings change
-  useEffect(() => {
-    startCamera();
-    
-    // Cleanup function to stop the stream when component unmounts
-    return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
-    };
-  }, [cameraSettings.selectedDeviceId, cameraSettings.resolution]);
+  const discardImage = () => {
+    setCapturedImage(null);
+    setShowPreview(false);
+    setFileNameError(null);
+  };
+
+  // Navigate to gallery tab
+  const navigateToGallery = () => {
+    const galleryTab = document.querySelector('[value="gallery"]') as HTMLElement;
+    if (galleryTab) {
+      galleryTab.click();
+    }
+  };
 
   // Check if filename already exists
   const isFileNameUnique = (name: string) => {
@@ -123,40 +128,74 @@ const CameraView: React.FC = () => {
     }
   };
 
-  const saveImage = () => {
-    if (capturedImage) {
-      const trimmedFileName = fileName.trim();
-      
-      if (trimmedFileName && !isFileNameUnique(trimmedFileName)) {
-        setFileNameError('Ein Bild mit diesem Namen existiert bereits');
+  const startCamera = async () => {
+    // Stop any existing stream
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+    }
+    
+    try {
+      // Check if getUserMedia is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.error('getUserMedia is not supported in this browser');
+        alert('Ihr Browser unterstützt keine Kamerafunktionen. Bitte verwenden Sie einen modernen Browser.');
         return;
       }
+
+      // Explicit user permission request
+      const permissionResult = await navigator.permissions.query({ name: 'camera' as PermissionName });
       
-      const name = trimmedFileName || `image_${new Date().toISOString().replace(/:/g, '-')}`;
-      addImage({
-        id: Date.now().toString(),
-        name: name,
-        src: capturedImage,
-        timestamp: new Date().toISOString(),
+      if (permissionResult.state === 'denied') {
+        alert('Kamera-Berechtigung wurde blockiert. Bitte überprüfen Sie Ihre Browsereinstellungen.');
+        return;
+      }
+
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          deviceId: cameraSettings.selectedDeviceId ? { exact: cameraSettings.selectedDeviceId } : undefined,
+          width: { ideal: cameraSettings.resolution.width },
+          height: { ideal: cameraSettings.resolution.height }
+        }
       });
       
-      // Reset
-      setCapturedImage(null);
-      setShowPreview(false);
-      setFileNameError(null);
+      setStream(newStream);
       
-      // Reset filename only if it was auto-generated
-      if (trimmedFileName === '') {
-        setFileName('');
+      if (videoRef.current) {
+        videoRef.current.srcObject = newStream;
+      }
+    } catch (err) {
+      console.error('Detailed camera access error:', err);
+      
+      // More specific error handling
+      if (err instanceof DOMException) {
+        switch (err.name) {
+          case 'NotAllowedError':
+            alert('Kamerazugriff wurde verweigert. Bitte erlauben Sie den Zugriff in Ihren Browsereinstellungen.');
+            break;
+          case 'NotFoundError':
+            alert('Keine Kamera gefunden. Bitte schließen Sie eine Kamera an oder wählen Sie eine andere.');
+            break;
+          case 'OverconstrainedError':
+            alert('Die angeforderten Kameraeinstellungen werden nicht unterstützt.');
+            break;
+          default:
+            alert('Ein unerwarteter Fehler beim Kamerazugriff ist aufgetreten.');
+        }
       }
     }
   };
 
-  const discardImage = () => {
-    setCapturedImage(null);
-    setShowPreview(false);
-    setFileNameError(null);
-  };
+  // Start camera when component mounts or when camera settings change
+  useEffect(() => {
+    startCamera();
+    
+    // Cleanup function to stop the stream when component unmounts
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [cameraSettings.selectedDeviceId, cameraSettings.resolution]);
 
   const handleCameraChange = (deviceId: string) => {
     updateSettings({ selectedDeviceId: deviceId });
@@ -166,111 +205,104 @@ const CameraView: React.FC = () => {
     await refreshCameras();
   };
 
-  // Function to navigate to gallery tab
-  const navigateToGallery = () => {
-    // Find the gallery tab trigger and click it
-    const galleryTab = document.querySelector('[value="gallery"]') as HTMLElement;
-    if (galleryTab) {
-      galleryTab.click();
-    }
-  };
-
   return (
     <div className="flex flex-col">
-      {/* Camera selection dropdown */}
-      <div className="mb-4 flex items-center">
-        <select
-          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg mr-2"
-          value={cameraSettings.selectedDeviceId || ''}
-          onChange={(e) => handleCameraChange(e.target.value)}
-        >
-          {availableCameras.length === 0 ? (
-            <option value="">Keine Kamera gefunden</option>
-          ) : (
-            availableCameras.map((camera) => (
-              <option key={camera.deviceId} value={camera.deviceId}>
-                {camera.label}
-              </option>
-            ))
-          )}
-        </select>
-        <button
-          onClick={handleRefreshCameras}
-          className="p-2 bg-gray-200 rounded-lg hover:bg-gray-300"
-          title="Kameraliste aktualisieren"
-        >
-          <RefreshCw size={20} />
-        </button>
-      </div>
+      {/* Main container with two-column layout */}
+      <div className="flex w-full h-[500px]">
+        {/* Left column: Camera View */}
+        <div className="w-1/2 pr-4">
+          <div className="w-full h-full bg-gray-100 rounded-lg overflow-hidden">
+            {!showPreview ? (
+              <video 
+                ref={videoRef}
+                autoPlay 
+                playsInline 
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="relative w-full h-full">
+                <img 
+                  src={capturedImage || ''} 
+                  alt="Captured" 
+                  className="w-full h-full object-contain" 
+                />
+                <button 
+                  onClick={discardImage}
+                  className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
 
-      <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
-        {!showPreview ? (
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="relative w-full h-full">
-            <img 
-              src={capturedImage || ''} 
-              alt="Captured" 
-              className="w-full h-full object-contain" 
-            />
-            <button 
-              onClick={discardImage}
-              className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full"
+        {/* Right column: Camera Controls */}
+        <div className="w-1/2 pl-4 flex flex-col">
+          {/* Camera selection dropdown */}
+          <div className="mb-4 flex items-center">
+            <select
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg mr-2"
+              value={cameraSettings.selectedDeviceId || ''}
+              onChange={(e) => handleCameraChange(e.target.value)}
             >
-              <X size={20} />
+              {availableCameras.length === 0 ? (
+                <option value="">Keine Kamera gefunden</option>
+              ) : (
+                availableCameras.map((camera) => (
+                  <option key={camera.deviceId} value={camera.deviceId}>
+                    {camera.label}
+                  </option>
+                ))
+              )}
+            </select>
+            <button
+              onClick={handleRefreshCameras}
+              className="p-2 bg-gray-200 rounded-lg hover:bg-gray-300"
+              title="Kameraliste aktualisieren"
+            >
+              <RefreshCw size={20} />
             </button>
           </div>
-        )}
-        
-        <canvas ref={canvasRef} className="hidden" />
-      </div>
-      
-      <div className="mt-4 space-y-3">
-        {/* Always visible filename input */}
-        <div>
+
+          {/* Filename Input */}
           <FileNameInput 
-            value={fileName} 
+            value={fileName}
             onChange={(value) => {
               setFileName(value);
               setFileNameError(null);
-            }} 
+            }}
+            onEnter={!showPreview && cameraSettings.selectedDeviceId ? captureImage : undefined}
             placeholder="Dateiname eingeben (optional)"
           />
           {fileNameError && (
             <p className="text-red-500 text-sm mt-1">{fileNameError}</p>
           )}
+          
+          {!showPreview ? (
+            <button
+              onClick={captureImage}
+              className="w-full mt-4 bg-blue-500 text-white py-3 rounded-lg hover:bg-blue-600 flex items-center justify-center"
+              disabled={!cameraSettings.selectedDeviceId}
+            >
+              <Camera size={24} className="mr-2" /> Foto aufnehmen
+            </button>
+          ) : (
+            <button
+              onClick={saveImage}
+              className="w-full mt-4 bg-green-600 text-white py-3 rounded-lg"
+            >
+              Speichern
+            </button>
+          )}
         </div>
-        
-        {!showPreview ? (
-          <button
-            onClick={captureImage}
-            className="w-full bg-blue-600 text-white py-2 rounded-lg flex items-center justify-center"
-            disabled={!cameraSettings.selectedDeviceId}
-          >
-            <Camera className="mr-2" size={20} />
-            Foto aufnehmen
-          </button>
-        ) : (
-          <button
-            onClick={saveImage}
-            className="w-full bg-green-600 text-white py-2 rounded-lg"
-          >
-            Speichern
-          </button>
-        )}
       </div>
 
       {/* Recent Photos Section */}
       {recentImages.length > 0 && (
-        <div className="mt-8">
-          <div className="flex justify-between items-center mb-3">
-            <h3 className="text-lg font-medium">Letzte Aufnahmen</h3>
+        <div className="mt-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold">Letzte Fotos</h3>
             <button 
               onClick={navigateToGallery}
               className="text-blue-600 flex items-center text-sm"
@@ -278,21 +310,29 @@ const CameraView: React.FC = () => {
               Alle anzeigen <ImageIcon size={16} className="ml-1" />
             </button>
           </div>
-          
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-4 gap-4">
             {recentImages.map((image) => (
-              <div key={image.id} className="aspect-square bg-gray-100 rounded-lg overflow-hidden">
+              <div 
+                key={image.id} 
+                className="bg-gray-100 rounded-lg overflow-hidden shadow-md"
+              >
                 <img 
                   src={image.src} 
                   alt={image.name} 
-                  className="w-full h-full object-cover"
+                  className="w-full h-40 object-cover"
                   onClick={navigateToGallery}
                 />
+                <div className="p-2 text-center text-sm truncate">
+                  {image.name}
+                </div>
               </div>
             ))}
           </div>
         </div>
       )}
+
+      {/* Hidden Canvas for Image Capture */}
+      <canvas ref={canvasRef} className="hidden" />
     </div>
   );
 };
