@@ -1,0 +1,1 @@
+# fotoplatz-bolt-diy
